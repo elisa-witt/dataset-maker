@@ -328,7 +328,7 @@ export function ChatCard({ datasetId }: ChatCardProps) {
                 key={conversation.id}
                 className={`group p-4 rounded-xl cursor-pointer border transition-all duration-200 relative ${
                   selectedConversation?.id === conversation.id
-                    ? "bg-red-500"
+                    ? "bg-current/20"
                     : ""
                 }`}
               >
@@ -533,8 +533,8 @@ function ChatSubCard({
         className={`relative flex flex-col max-w-[75%] p-4 rounded-2xl shadow-sm
         ${
           role === "user"
-            ? "bg-blue-500 text-white rounded-br-none"
-            : "bg-gray-100 text-gray-800 rounded-bl-none"
+            ? "bg-blue-500 text-white rounded-tr-none"
+            : "bg-gray-100 text-gray-800 rounded-tl-none"
         }
         ${
           role === "system"

@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params: routeParams }: { params: Promise<{ id: string }> }
 ) {
+  const params = await routeParams;
+
   try {
     const tools = await prismaClient.tool.findMany({
       where: { workspaceId: params.id },
@@ -22,14 +24,29 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params: routeParams }: { params: Promise<{ id: string }> }
 ) {
+  const params = await routeParams;
+
   try {
     const { toolName, description, parameters } = await request.json();
 
+    const workspace = await prismaClient.workspace.findFirst({
+      where: {
+        workspaceId: params.id,
+      },
+    });
+
+    if (!workspace) {
+      return NextResponse.json(
+        { error: "Failed to find workspace" },
+        { status: 500 }
+      );
+    }
+
     const tool = await prismaClient.tool.create({
       data: {
-        workspaceId: params.id,
+        workspaceId: workspace.id,
         toolName,
         description,
         parameters: JSON.stringify(parameters),
@@ -38,6 +55,7 @@ export async function POST(
 
     return NextResponse.json(tool);
   } catch (error) {
+    console.log(error);
     return NextResponse.json(
       { error: "Failed to create tool" },
       { status: 500 }

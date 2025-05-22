@@ -200,7 +200,7 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
         }
       }
 
-      const response = await fetch("/api/tool/create-tool", {
+      const response = await fetch(`/api/workspace/${workspaceId}/tools`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
