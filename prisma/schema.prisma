@@ -1,0 +1,231 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id String @id @default(uuid())
+
+  username  String
+  ipAddress String
+
+  workspaces Workspace[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Workspace {
+  id String @id @default(uuid())
+
+  workspaceId   String @unique @default(uuid())
+  workspaceName String
+
+  tools    Tool[]
+  datasets Dataset[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  User   User?   @relation(fields: [userId], references: [id])
+  userId String?
+}
+
+// UPDATED: Enhanced Dataset model with OpenAI compliance
+model Dataset {
+  id String @id @default(uuid())
+
+  datasetId String @unique @default(uuid())
+
+  // NEW: OpenAI compliance fields (nullable for backward compatibility)
+  name        String?
+  description String?
+  purpose     String  @default("fine-tune") // "fine-tune" | "chat-completion"
+  model       String? // Target model (gpt-3.5-turbo, gpt-4, etc.)
+  status      String  @default("draft") // "draft" | "training" | "completed" | "failed"
+
+  // LEGACY: Keep old conversations for backward compatibility
+  conversations Conversation[]
+
+  // NEW: OpenAI training conversations
+  trainingConversations TrainingConversation[]
+
+  // NEW: Export/import tracking
+  lastExportAt DateTime?
+  exportCount  Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  Workspace   Workspace?    @relation(fields: [workspaceId], references: [id])
+  workspaceId String?
+  TrainingJob TrainingJob[]
+}
+
+// LEGACY: Keep existing Conversation model for backward compatibility
+model Conversation {
+  id String @id @default(uuid())
+
+  role      String
+  content   String
+  toolCalls ToolCall @relation(fields: [toolCallId], references: [id])
+
+  Dataset    Dataset? @relation(fields: [datasetId], references: [id])
+  datasetId  String?
+  toolCallId String
+}
+
+// LEGACY: Keep existing ToolCall model for backward compatibility
+model ToolCall {
+  id String @id @default(uuid())
+
+  toolName      String
+  toolCallId    String
+  toolArguments String
+  Conversation  Conversation[]
+}
+
+// NEW: OpenAI-compliant training conversations
+model TrainingConversation {
+  id String @id @default(uuid())
+
+  conversationId String @unique @default(uuid())
+
+  // Optional metadata for organizing conversations
+  title       String?
+  description String?
+  tags        String[] // For categorizing conversations
+
+  // The actual messages in this training example
+  messages Message[]
+
+  // Training quality metrics
+  quality    Int?    @default(5) // 1-10 rating
+  difficulty String? // "easy" | "medium" | "hard"
+  category   String? // Custom categorization
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  Dataset   Dataset? @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  datasetId String?
+
+  @@map("training_conversations")
+}
+
+// NEW: OpenAI-compliant message format
+model Message {
+  id String @id @default(uuid())
+
+  // OpenAI required fields
+  role    MessageRole // "system" | "user" | "assistant" | "tool"
+  content String? // Message content (can be null for tool calls)
+
+  // Optional OpenAI fields
+  name String? // For tool/function messages
+
+  toolCalls OpenAIToolCall[]
+
+  toolCallId String? // References the tool call this message responds to
+
+  order Int // Order within the conversation (0, 1, 2, ...)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  TrainingConversation TrainingConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId       String?
+
+  @@map("messages")
+}
+
+// NEW: OpenAI-compliant tool calls
+model OpenAIToolCall {
+  id String @id @default(uuid())
+
+  toolCallId String // OpenAI's tool call ID
+  type       String @default("function") // Always "function" for now
+
+  functionName      String
+  functionArguments String // JSON string of arguments
+
+  description String?
+
+  createdAt DateTime @default(now())
+
+  Message   Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId String?
+
+  @@map("openai_tool_calls")
+}
+
+// UPDATED: Enhanced Tool model
+model Tool {
+  id String @id @default(uuid())
+
+  toolName String
+
+  // NEW: Enhanced tool definition
+  description String?
+  parameters  String? // JSON schema as string
+  usageCount  Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  Workspace   Workspace? @relation(fields: [workspaceId], references: [id])
+  workspaceId String?
+}
+
+// NEW: Enum for message roles (OpenAI compliant)
+enum MessageRole {
+  system
+  user
+  assistant
+  tool
+
+  @@map("message_role")
+}
+
+// NEW: Training job tracking (for OpenAI API integration)
+model TrainingJob {
+  id String @id @default(uuid())
+
+  openaiJobId String? @unique
+  status      String  @default("pending") // "pending" | "running" | "succeeded" | "failed" | "cancelled"
+
+  model          String // Base model to fine-tune
+  trainingFile   String? // OpenAI file ID
+  validationFile String? // Optional validation file ID
+
+  nEpochs      Int?   @default(3)
+  batchSize    Int?   @default(1)
+  learningRate Float?
+
+  fineTunedModel String? // Resulting model ID
+  resultFiles    String[] // Result file IDs from OpenAI
+
+  trainingLoss   Float?
+  validationLoss Float?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  Dataset   Dataset? @relation(fields: [datasetId], references: [id])
+  datasetId String?
+
+  @@map("training_jobs")
+}
