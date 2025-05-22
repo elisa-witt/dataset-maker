@@ -1,62 +1,53 @@
-import { getUserFromIpAddress } from "@/lib/cred";
 import { prismaClient } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { ipAddress as getIpAddress } from "@vercel/functions";
+import { PrismaClientKnownRequestError } from "@/generated/prisma/runtime/library";
 
-// Helper function for creating standardized error responses
+// A helper function to create consistent error responses
 function createErrorResponse(message: string, status: number) {
   return NextResponse.json({ success: false, error: message }, { status });
 }
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { workspace_name } = body;
+    const ipAddress = getIpAddress(request);
 
-    if (
-      !workspace_name ||
-      typeof workspace_name !== "string" ||
-      workspace_name.trim() === ""
-    ) {
-      return createErrorResponse(
-        "Workspace name is required and must be a non-empty string.",
-        400
-      );
-    }
-
-    const user = await getUserFromIpAddress(request); // Assumes getUserFromIpAddress handles its own errors or returns null
-
-    if (!user || !user.id) {
-      // Check for user and user.id
-      // If getUserFromIpAddress can throw, you might want a try-catch around it too,
-      // or ensure it consistently returns null on failure.
-      return createErrorResponse(
-        "User not found or unauthorized to create a workspace.",
-        404
-      ); // Or 401/403 depending on auth logic
-    }
-
-    const newWorkspace = await prismaClient.workspace.create({
-      data: {
-        workspaceName: workspace_name.trim(),
-        userId: user.id, // Ensure user.id is available
+    // Insert user into the database
+    const newUser = await prismaClient.user.findFirst({
+      where: {
+        ipAddress: ipAddress ?? "127.0.0.1", // Provide a default if IP is null
       },
     });
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Workspace created successfully.",
-        workspace: { id: newWorkspace.id, name: newWorkspace.workspaceName },
-      },
-      { status: 201 }
-    );
+    if (!newUser) {
+      return createErrorResponse("User not found", 401);
+    }
+
+    // Return a success response with the created user's data (optional)
+    return NextResponse.json({ success: true, user: newUser }, { status: 201 });
   } catch (error: unknown) {
-    console.error("[API_ERROR] /api/workspace/create-workspace:", error);
-    // Add more specific error handling if needed (e.g., Prisma errors)
+    // Log the error for server-side debugging
+    console.error("[API_ERROR] /api/user/register-user:", error);
+
+    // Handle specific Prisma errors or other known errors if necessary
+    // For example, if Prisma throws a unique constraint violation for username
+    if (
+      error instanceof PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return createErrorResponse("Username already exists.", 409); // 409 Conflict
+    }
+
+    // For generic/unknown errors, return a 500 Internal Server Error
+    // In production, you might want to avoid sending the raw error message
     const errorMessage =
-      error instanceof Error
-        ? error.message
-        : "An unexpected error occurred while creating the workspace.";
+      error instanceof Error ? error.message : "An unexpected error occurred.";
+
+    // For production, you might want a more generic message for 500 errors
+    if (process.env.NODE_ENV === "production") {
+      return createErrorResponse("An internal server error occurred.", 500);
+    }
+
     return createErrorResponse(errorMessage, 500);
   }
 }

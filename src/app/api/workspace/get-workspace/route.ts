@@ -36,6 +36,10 @@ export async function POST(request: NextRequest) {
       where: {
         workspaceId: workspace_id,
       },
+      include: {
+        datasets: true,
+        tools: true,
+      },
     });
 
     if (!workspace) {
@@ -46,7 +50,7 @@ export async function POST(request: NextRequest) {
       {
         success: true,
         message: "Workspace created successfully.",
-        workspace: { id: workspace.id, name: workspace.workspaceName },
+        workspace: workspace,
       },
       { status: 201 }
     );

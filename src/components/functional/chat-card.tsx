@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, FormEventHandler } from "react";
-import { Plus, MessageSquare, Send } from "lucide-react"; // Edit, Trash2 might be needed later for message actions
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar"; // Assuming path is correct
-import { Button } from "../ui/button"; // Assuming path is correct
-import { Textarea } from "../ui/textarea"; // Assuming path is correct
+import { Plus, MessageSquare, Send, Loader2 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Select,
@@ -14,59 +14,60 @@ import {
   SelectLabel,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"; // Assuming path is correct
+} from "@/components/ui/select";
 
-// Interfaces from ConversationManager (Source)
+// Interfaces matching your Prisma schema
 interface Conversation {
   id: string;
-  conversationId: string; // Assuming this is unique and used for API calls
-  title: string;
+  conversationId: string;
+  title?: string;
   description?: string;
   messages: Message[];
+  quality?: number;
+  difficulty?: string;
+  category?: string;
+  tags?: string[];
 }
 
 interface Message {
-  id: string; // Unique ID for the message
+  id: string;
   role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  order: number; // To maintain message order
-  toolCalls?: ToolCall[]; // Made optional if not always present
+  content?: string;
+  name?: string;
+  order: number;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
 }
 
 interface ToolCall {
   id: string;
   toolCallId: string;
+  type: string;
   functionName: string;
   functionArguments: string;
+  description?: string;
 }
 
-// Props for the main component
-interface MergedChatProps {
+interface ChatCardProps {
   datasetId: string;
 }
 
-export function ChatCard({ datasetId }: MergedChatProps) {
-  // State from ConversationManager
+export function ChatCard({ datasetId }: ChatCardProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] =
     useState<Conversation | null>(null);
-  const [loading, setLoading] = useState(false); // For conversation creation/loading
-  const [messageLoading, setMessageLoading] = useState(false); // For submitting new messages
-
-  // State from original ChatCard
+  const [loading, setLoading] = useState(false);
+  const [messageLoading, setMessageLoading] = useState(false);
   const [selectedRole, setSelectedRole] = useState<
-    "user" | "assistant" | "tool"
+    "user" | "assistant" | "tool" | "system"
   >("user");
 
-  // useEffect from ConversationManager
   useEffect(() => {
     if (datasetId) {
       fetchConversations();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId]);
 
-  // Function from ConversationManager
   const fetchConversations = async () => {
     if (!datasetId) return;
     setLoading(true);
@@ -76,27 +77,22 @@ export function ChatCard({ datasetId }: MergedChatProps) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      setConversations(data);
-      // If a conversation was selected, try to find it in the new list
+      setConversations(data || []);
+
       if (selectedConversation) {
         const updatedSelected = data.find(
           (c: Conversation) => c.id === selectedConversation.id
         );
-        setSelectedConversation(
-          updatedSelected || (data.length > 0 ? data[0] : null)
-        );
-      } else if (data.length > 0) {
-        // setSelectedConversation(data[0]); // Optionally select the first conversation
+        setSelectedConversation(updatedSelected || null);
       }
     } catch (error) {
       console.error("Failed to fetch conversations:", error);
-      toast.error("Failed to fetch conversations.");
+      toast("Failed to fetch conversations.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Function from ConversationManager
   const createConversation = async () => {
     if (!datasetId) return;
     setLoading(true);
@@ -105,28 +101,30 @@ export function ChatCard({ datasetId }: MergedChatProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: `New Conversation ${conversations.length + 1}`,
+          title: `Conversation ${conversations.length + 1}`,
           description: "Training conversation",
-          // Ensure your API can handle creating a conversation potentially without initial messages
-          // or with a default system message.
         }),
       });
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(
+          errorData.error || `HTTP error! status: ${response.status}`
+        );
       }
+
       const newConversation = await response.json();
       setConversations((prev) => [newConversation, ...prev]);
       setSelectedConversation(newConversation);
-      toast.success("New conversation created!");
+      toast("New conversation created!");
     } catch (error) {
       console.error("Failed to create conversation:", error);
-      toast.error("Failed to create conversation.");
+      toast(`Failed to create conversation: ${(error as Error).message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Adapted submitHandler from original ChatCard
   const submitHandler: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -136,27 +134,21 @@ export function ChatCard({ datasetId }: MergedChatProps) {
     const prompt = promptContentElement.value.trim();
 
     if (!prompt || !selectedConversation) {
-      toast.warning("Please select a conversation and type a message.");
+      toast("Please select a conversation and type a message.");
       return;
     }
 
     setMessageLoading(true);
 
-    // --- THIS IS WHERE MessageEditor's onUpdate LOGIC WOULD BE MIMICKED ---
-    // It needs to POST the new message to the selectedConversation
-    // For now, we'll optimistically update and then re-fetch (or update from response)
-
     const newMessageData = {
       role: selectedRole,
       content: prompt,
-      // 'order' would typically be handled by the backend or calculated based on existing messages.
-      // 'id' and 'toolCalls' would also be backend-generated or handled as needed.
+      order: selectedConversation.messages?.length || 0,
     };
 
     try {
-      // API call to add message to the current conversation
       const response = await fetch(
-        `/api/dataset/${datasetId}/conversations/${selectedConversation.conversationId}/messages`, // Assuming endpoint structure
+        `/api/dataset/${datasetId}/conversations/${selectedConversation.id}/messages`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -167,18 +159,17 @@ export function ChatCard({ datasetId }: MergedChatProps) {
       if (!response.ok) {
         const errorData = await response
           .json()
-          .catch(() => ({ message: "Failed to send message" }));
+          .catch(() => ({ error: "Failed to send message" }));
         throw new Error(
-          errorData.message || `HTTP error! status: ${response.status}`
+          errorData.error || `HTTP error! status: ${response.status}`
         );
       }
 
-      const addedMessage: Message = await response.json(); // Assuming API returns the full message object
+      const addedMessage: Message = await response.json();
 
       // Update messages for the selected conversation
       setSelectedConversation((prevConv) => {
         if (!prevConv) return null;
-        // Ensure messages array exists
         const existingMessages = prevConv.messages || [];
         return {
           ...prevConv,
@@ -188,7 +179,7 @@ export function ChatCard({ datasetId }: MergedChatProps) {
         };
       });
 
-      // Update the conversation list to reflect message count changes or new messages
+      // Update the conversation list
       setConversations((prevConvs) =>
         prevConvs.map((conv) =>
           conv.id === selectedConversation.id
@@ -202,194 +193,344 @@ export function ChatCard({ datasetId }: MergedChatProps) {
         )
       );
 
-      toast.success("Message Submitted");
-      promptContentElement.value = ""; // Clear textarea
+      toast("Message added successfully!");
+      promptContentElement.value = "";
     } catch (error) {
       console.error("Failed to send message:", error);
-      toast.error(`Failed to send message: ${(error as Error).message}`);
+      toast(`Failed to send message: ${(error as Error).message}`);
     } finally {
       setMessageLoading(false);
     }
   };
 
+  const deleteConversation = async (conversationId: string) => {
+    try {
+      const response = await fetch(
+        `/api/dataset/${datasetId}/conversations/${conversationId}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to delete conversation");
+      }
+
+      setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation(null);
+      }
+
+      toast("Conversation deleted successfully!");
+    } catch (error) {
+      console.error("Failed to delete conversation:", error);
+      toast(`Failed to delete conversation: ${(error as Error).message}`);
+    }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    if (!selectedConversation) return;
+
+    try {
+      const response = await fetch(
+        `/api/dataset/${datasetId}/conversations/${selectedConversation.conversationId}/messages`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({
+            messageId,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to delete message");
+      }
+
+      // Update messages for the selected conversation
+      setSelectedConversation((prevConv) => {
+        if (!prevConv) return null;
+        return {
+          ...prevConv,
+          messages: prevConv.messages.filter((m) => m.id !== messageId),
+        };
+      });
+
+      // Update the conversation list
+      setConversations((prevConvs) =>
+        prevConvs.map((conv) =>
+          conv.id === selectedConversation.id
+            ? {
+                ...conv,
+                messages: conv.messages.filter((m) => m.id !== messageId),
+              }
+            : conv
+        )
+      );
+
+      toast("Message deleted successfully!");
+    } catch (error) {
+      console.error("Failed to delete message:", error);
+      toast(`Failed to delete message: ${(error as Error).message}`);
+    }
+  };
+
   return (
-    <div className="flex h-full w-full">
-      {/* Conversation List (from ConversationManager) */}
-      <div className="w-1/3 min-w-[280px] max-w-[400px] border-r border-gray-200 p-4 flex flex-col">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold">Training Conversations</h3>
-          <button
-            onClick={createConversation}
-            disabled={loading || !datasetId}
-            className="flex items-center space-x-1 bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New</span>
-          </button>
-        </div>
+    <div className="min-h-screen w-full font-[family-name:var(--font-geist-sans)]">
+      {/* Full Page Container */}
+      <div className="flex h-screen w-full">
+        {/* Conversation List Sidebar */}
+        <div className="w-80 border-r p-6 flex flex-col">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-bold">Training Conversations</h3>
+            <Button
+              onClick={createConversation}
+              disabled={loading || !datasetId}
+              size="sm"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              New
+            </Button>
+          </div>
 
-        {loading && !conversations.length ? (
-          <p>Loading conversations...</p>
-        ) : null}
-        {!loading && !conversations.length && datasetId ? (
-          <p>No conversations yet. Create one!</p>
-        ) : null}
-        {!datasetId ? <p>Please provide a Dataset ID.</p> : null}
+          {loading && !conversations.length ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <Loader2 className="animate-spin h-8 w-8 mx-auto mb-4" />
+                Loading conversations...
+              </div>
+            </div>
+          ) : null}
 
-        <div className="space-y-2 overflow-y-auto flex-grow">
-          {conversations &&
-            conversations.map((conversation) => (
+          {!loading && !conversations.length && datasetId ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No conversations yet</p>
+                <p className="text-sm">Create one to get started!</p>
+              </div>
+            </div>
+          ) : null}
+
+          {!datasetId ? (
+            <div className="flex items-center justify-center py-12">
+              <p className="text-center">
+                Please provide a Dataset ID to load conversations.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="space-y-3 overflow-y-auto flex-grow">
+            {conversations.map((conversation) => (
               <div
                 key={conversation.id}
-                onClick={() => setSelectedConversation(conversation)}
-                className={`p-3 rounded-lg cursor-pointer border transition-colors ${
+                className={`group p-4 rounded-xl cursor-pointer border transition-all duration-200 relative ${
                   selectedConversation?.id === conversation.id
-                    ? "bg-blue-50 border-blue-300"
-                    : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                    ? "bg-red-500"
+                    : ""
                 }`}
               >
-                <div className="font-medium text-gray-900 truncate">
-                  {conversation.title}
+                <div onClick={() => setSelectedConversation(conversation)}>
+                  <div className="font-semibold truncate pr-8 mb-2">
+                    {conversation.title ||
+                      `Conversation ${conversation.conversationId.slice(0, 8)}`}
+                  </div>
+                  <div className="text-sm flex justify-between items-center mb-2">
+                    <span>{conversation.messages?.length || 0} messages</span>
+                  </div>
+                  {conversation.description && (
+                    <div className="text-xs truncate">
+                      {conversation.description}
+                    </div>
+                  )}
                 </div>
-                <div className="text-sm text-gray-500">
-                  {conversation.messages?.length || 0} messages
-                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteConversation(conversation.id);
+                  }}
+                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 h-6 w-6 p-0"
+                >
+                  ×
+                </Button>
               </div>
             ))}
-        </div>
-      </div>
-
-      {/* Message Editor / Chat Area (from ChatCard) */}
-      <div className="flex-1 flex flex-col border rounded h-full">
-        {" "}
-        {/* Target aesthetic: border rounded h-full */}
-        {selectedConversation ? (
-          <>
-            {/* Header */}
-            <div className="py-4 px-8 border-b">
-              <h3 className="scroll-m-20 text-2xl font-bold tracking-tight font-[family-name:var(--font-geist-sans)]">
-                {selectedConversation.title || "Chat"}
-              </h3>
-              {selectedConversation.description && (
-                <p className="text-sm text-gray-500">
-                  {selectedConversation.description}
-                </p>
-              )}
-            </div>
-
-            {/* Chat Messages Display */}
-            <div className="flex-grow overflow-y-auto p-4 space-y-4">
-              {selectedConversation.messages &&
-              selectedConversation.messages.length > 0 ? (
-                selectedConversation.messages
-                  .sort((a, b) => a.order - b.order)
-                  .map((msg) => (
-                    <ChatSubCard
-                      key={msg.id} // Use message ID as key
-                      role={msg.role}
-                      content={msg.content} // Changed from prompt to content
-                      // toolCalls={msg.toolCalls} // Pass if ChatSubCard can display them
-                    />
-                  ))
-              ) : (
-                <div className="flex items-center justify-center h-full text-gray-500">
-                  <div className="text-center">
-                    <MessageSquare className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                    <p>No messages in this conversation yet.</p>
-                    <p>Start by sending a message below.</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Submitter Form */}
-            <form
-              onSubmit={submitHandler}
-              className="flex gap-4 sm:gap-8 items-start sm:items-center p-4 sm:p-8 border-t mt-auto relative font-[family-name:var(--font-geist-sans)] flex-col sm:flex-row"
-            >
-              <div className="flex flex-col gap-2 w-full">
-                <Select
-                  onValueChange={(value: "user" | "assistant" | "tool") =>
-                    setSelectedRole(value)
-                  }
-                  defaultValue="user"
-                  disabled={messageLoading}
-                >
-                  <SelectTrigger className="w-full sm:w-[180px]">
-                    <SelectValue placeholder="Select a role." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>Role</SelectLabel>
-                      <SelectItem value="assistant">Assistant</SelectItem>
-                      <SelectItem value="user">User</SelectItem>
-                      <SelectItem value="tool">Tool</SelectItem>
-                      {/* System role is usually not for user input */}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <Textarea
-                  id="promptContent"
-                  placeholder="Type your message here."
-                  className="min-h-[80px]"
-                  disabled={messageLoading}
-                />
-              </div>
-              <Button
-                type="submit"
-                variant="default"
-                className="cursor-pointer w-full sm:w-auto"
-                disabled={messageLoading}
-              >
-                <Send className="w-5 h-5" />
-                <span className="ml-2 sm:hidden">Send</span>
-              </Button>
-            </form>
-          </>
-        ) : (
-          // Placeholder if no conversation is selected (from ConversationManager)
-          <div className="flex-1 p-4 flex items-center justify-center h-full text-gray-500">
-            <div className="text-center">
-              <MessageSquare className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-              <p>Select a conversation to view or edit messages,</p>
-              <p>or create a new one.</p>
-            </div>
           </div>
-        )}
+        </div>
+
+        {/* Main Chat Area */}
+        <div className="flex-1 flex flex-col">
+          {selectedConversation ? (
+            <>
+              {/* Chat Header */}
+              <div className="py-6 px-8 border-b">
+                <h1 className="text-3xl font-bold mb-2">
+                  {selectedConversation.title || "Training Conversation"}
+                </h1>
+                {selectedConversation.description && (
+                  <p className="mb-3">{selectedConversation.description}</p>
+                )}
+                <div className="flex items-center space-x-6 text-sm">
+                  {selectedConversation.quality && (
+                    <span className="px-3 py-1 rounded-full">
+                      Quality: {selectedConversation.quality}/10
+                    </span>
+                  )}
+                  {selectedConversation.difficulty && (
+                    <span className="px-3 py-1 rounded-full">
+                      Difficulty: {selectedConversation.difficulty}
+                    </span>
+                  )}
+                  {selectedConversation.category && (
+                    <span className="px-3 py-1 rounded-full">
+                      Category: {selectedConversation.category}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Chat Messages Display */}
+              <div className="flex-grow overflow-y-auto p-8">
+                <div className="max-w-4xl mx-auto space-y-6">
+                  {selectedConversation.messages &&
+                  selectedConversation.messages.length > 0 ? (
+                    selectedConversation.messages
+                      .sort((a, b) => a.order - b.order)
+                      .map((msg) => (
+                        <ChatSubCard
+                          key={msg.id}
+                          message={msg}
+                          onDelete={() => deleteMessage(msg.id)}
+                        />
+                      ))
+                  ) : (
+                    <div className="flex items-center justify-center h-96">
+                      <div className="text-center text-muted-foreground">
+                        <MessageSquare className="w-16 h-16 mx-auto mb-6" />
+                        <p className="text-xl font-medium mb-2">
+                          No messages yet
+                        </p>
+                        <p>
+                          Start the conversation by sending a message below.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Message Input Form */}
+              <div className="border-t ">
+                <form
+                  onSubmit={submitHandler}
+                  className="max-w-4xl mx-auto p-8"
+                >
+                  <div className="flex gap-6 items-end">
+                    <div className="flex-1">
+                      <div className="mb-4">
+                        <Select
+                          onValueChange={(
+                            value: "user" | "assistant" | "tool" | "system"
+                          ) => setSelectedRole(value)}
+                          defaultValue="user"
+                          disabled={messageLoading}
+                        >
+                          <SelectTrigger className="w-48">
+                            <SelectValue placeholder="Select a role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectLabel>Message Role</SelectLabel>
+                              <SelectItem value="system">System</SelectItem>
+                              <SelectItem value="user">User</SelectItem>
+                              <SelectItem value="assistant">
+                                Assistant
+                              </SelectItem>
+                              <SelectItem value="tool">Tool</SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Textarea
+                        name="promptContent"
+                        placeholder="Type your message here..."
+                        className="min-h-[120px] resize-none text-base"
+                        disabled={messageLoading}
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      size="lg"
+                      className="px-8 py-4"
+                      disabled={messageLoading}
+                    >
+                      {messageLoading ? (
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                      ) : (
+                        <>
+                          <Send className="w-5 h-5 mr-2" />
+                          Send
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </>
+          ) : (
+            // Placeholder if no conversation is selected
+            <div className="flex-1 p-8 flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+                <MessageSquare className="w-20 h-20 mx-auto mb-6" />
+                <h2 className="text-2xl font-bold mb-2">
+                  Select a conversation
+                </h2>
+                <p className="text-lg">
+                  Choose a conversation from the sidebar to view and edit
+                  messages,
+                </p>
+                <p className="text-lg">or create a new one to get started.</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-// Adapted ChatSubCard - make sure props match what's passed
+// Message component with delete functionality
 function ChatSubCard({
-  role,
-  content, // Changed from 'prompt'
-}: // toolCalls, // Optional: if you want to display tool call info
-{
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  toolCalls?: ToolCall[];
+  message,
+  onDelete,
+}: {
+  message: Message;
+  onDelete: () => void;
 }) {
+  const { role, content, toolCalls } = message;
+
   return (
     <div
-      className={`flex gap-4 items-start ${
+      className={`group flex gap-4 items-start ${
         role === "user" ? "justify-end" : "justify-start"
       }`}
     >
-      {role !== "user" && ( // Avatar on left for assistant, tool, system
-        <Avatar className="w-8 h-8">
+      {role !== "user" && (
+        <Avatar className="w-10 h-10 flex-shrink-0">
           {role === "assistant" && (
             <AvatarImage src="/icons/assistant-avatar.png" alt="Assistant" />
-          )}{" "}
-          {/* Example avatar */}
+          )}
           <AvatarFallback>{role.slice(0, 1).toUpperCase()}</AvatarFallback>
         </Avatar>
       )}
 
       {/* Content Bubble */}
       <div
-        className={`flex flex-col max-w-[70%] p-3 rounded-lg shadow-sm
+        className={`relative flex flex-col max-w-[75%] p-4 rounded-2xl shadow-sm
         ${
           role === "user"
             ? "bg-blue-500 text-white rounded-br-none"
@@ -397,34 +538,57 @@ function ChatSubCard({
         }
         ${
           role === "system"
-            ? "bg-yellow-100 text-yellow-800 w-full text-xs italic text-center p-2"
+            ? "bg-yellow-100 text-yellow-800 w-full text-sm italic text-center p-3"
             : ""
         }
-        ${role === "tool" ? "bg-purple-100 text-purple-800 text-xs" : ""}
+        ${role === "tool" ? "bg-purple-100 text-purple-800 text-sm" : ""}
       `}
       >
-        <h1 className="text-xs font-semibold mb-1">
-          {role.charAt(0).toUpperCase() + role.slice(1)}
-        </h1>
-        <div className="font-[family-name:var(--font-geist-sans)] text-sm whitespace-pre-wrap">
-          {content}
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-xs font-semibold uppercase tracking-wide opacity-75">
+            {role}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onDelete}
+            className="opacity-0 group-hover:opacity-100 h-6 w-6 p-0 text-current hover:bg-red-500/20 rounded-full"
+          >
+            ×
+          </Button>
         </div>
-        {/* Optional: Display tool call information */}
-        {/* {toolCalls && toolCalls.length > 0 && (
-          <div className="mt-2 border-t border-gray-300 pt-1">
-            <p className="text-xs font-semibold">Tool Calls:</p>
-            {toolCalls.map(tc => (
-              <div key={tc.id || tc.toolCallId} className="text-xs">
-                {tc.functionName}({tc.functionArguments})
+        <div className="text-base leading-relaxed whitespace-pre-wrap">
+          {content || ""}
+        </div>
+
+        {/* Tool Calls Display */}
+        {toolCalls && toolCalls.length > 0 && (
+          <div className="mt-3 border-t border-current/20 pt-3">
+            <p className="text-xs font-semibold mb-2 uppercase tracking-wide">
+              Tool Calls:
+            </p>
+            {toolCalls.map((tc) => (
+              <div
+                key={tc.id}
+                className="text-sm bg-black/10 rounded-lg p-3 mb-2"
+              >
+                <div className="font-mono text-xs break-all">
+                  {tc.functionName}({tc.functionArguments})
+                </div>
+                {tc.description && (
+                  <div className="text-xs opacity-75 mt-2">
+                    {tc.description}
+                  </div>
+                )}
               </div>
             ))}
           </div>
-        )} */}
+        )}
       </div>
 
-      {role === "user" && ( // Avatar on right for user
-        <Avatar className="w-8 h-8">
-          <AvatarImage src="https://github.com/shadcn.png" alt="@shadcn" />
+      {role === "user" && (
+        <Avatar className="w-10 h-10 flex-shrink-0">
+          <AvatarImage src="https://github.com/shadcn.png" alt="User" />
           <AvatarFallback>U</AvatarFallback>
         </Avatar>
       )}

@@ -38,8 +38,8 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  User   User?   @relation(fields: [userId], references: [id])
   userId String?
+  User   User?   @relation(fields: [userId], references: [id])
 }
 
 // UPDATED: Enhanced Dataset model with OpenAI compliance
@@ -68,8 +68,8 @@ model Dataset {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  Workspace   Workspace?    @relation(fields: [workspaceId], references: [id])
   workspaceId String?
+  Workspace   Workspace?    @relation(fields: [workspaceId], references: [id])
   TrainingJob TrainingJob[]
 }
 
@@ -77,13 +77,13 @@ model Dataset {
 model Conversation {
   id String @id @default(uuid())
 
-  role      String
-  content   String
-  toolCalls ToolCall @relation(fields: [toolCallId], references: [id])
-
-  Dataset    Dataset? @relation(fields: [datasetId], references: [id])
-  datasetId  String?
+  role       String
+  content    String
   toolCallId String
+  toolCalls  ToolCall @relation(fields: [toolCallId], references: [id])
+
+  datasetId String?
+  Dataset   Dataset? @relation(fields: [datasetId], references: [id])
 }
 
 // LEGACY: Keep existing ToolCall model for backward compatibility
@@ -100,8 +100,6 @@ model ToolCall {
 model TrainingConversation {
   id String @id @default(uuid())
 
-  conversationId String @unique @default(uuid())
-
   // Optional metadata for organizing conversations
   title       String?
   description String?
@@ -110,18 +108,11 @@ model TrainingConversation {
   // The actual messages in this training example
   messages Message[]
 
-  // Training quality metrics
-  quality    Int?    @default(5) // 1-10 rating
-  difficulty String? // "easy" | "medium" | "hard"
-  category   String? // Custom categorization
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  Dataset   Dataset? @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   datasetId String?
-
-  @@map("training_conversations")
+  Dataset   Dataset? @relation(fields: [datasetId], references: [id], onDelete: Cascade)
 }
 
 // NEW: OpenAI-compliant message format
@@ -144,10 +135,8 @@ model Message {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  TrainingConversation TrainingConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   conversationId       String?
-
-  @@map("messages")
+  TrainingConversation TrainingConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
 // NEW: OpenAI-compliant tool calls
@@ -164,10 +153,8 @@ model OpenAIToolCall {
 
   createdAt DateTime @default(now())
 
-  Message   Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
   messageId String?
-
-  @@map("openai_tool_calls")
+  Message   Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }
 
 // UPDATED: Enhanced Tool model
@@ -184,8 +171,8 @@ model Tool {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  Workspace   Workspace? @relation(fields: [workspaceId], references: [id])
   workspaceId String?
+  Workspace   Workspace? @relation(fields: [workspaceId], references: [id])
 }
 
 // NEW: Enum for message roles (OpenAI compliant)
@@ -194,8 +181,6 @@ enum MessageRole {
   user
   assistant
   tool
-
-  @@map("message_role")
 }
 
 // NEW: Training job tracking (for OpenAI API integration)
@@ -224,8 +209,6 @@ model TrainingJob {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  Dataset   Dataset? @relation(fields: [datasetId], references: [id])
   datasetId String?
-
-  @@map("training_jobs")
+  Dataset   Dataset? @relation(fields: [datasetId], references: [id])
 }

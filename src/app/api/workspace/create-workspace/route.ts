@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       // or ensure it consistently returns null on failure.
       return createErrorResponse(
         "User not found or unauthorized to create a workspace.",
-        404
+        402
       ); // Or 401/403 depending on auth logic
     }
 
@@ -46,7 +46,10 @@ export async function POST(request: NextRequest) {
       {
         success: true,
         message: "Workspace created successfully.",
-        workspace: { id: newWorkspace.id, name: newWorkspace.workspaceName },
+        workspace: {
+          id: newWorkspace.workspaceId,
+          name: newWorkspace.workspaceName,
+        },
       },
       { status: 201 }
     );

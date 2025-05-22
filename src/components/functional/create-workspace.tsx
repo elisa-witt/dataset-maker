@@ -14,17 +14,49 @@ import {
 
 import { Input } from "@/components/ui/input";
 import { Label } from "../ui/label";
-import { FormEventHandler, useState } from "react";
+import { FormEventHandler, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export function CreateWorkspace() {
   const [loading, setLoading] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+
+  const ref = useRef<HTMLFormElement | null>(null);
 
   const onCreateWorkspaceHandler = () => {
+    if (ref.current) {
+      ref.current.requestSubmit();
+    }
+  };
+
+  const onSubmitForm: FormEventHandler<HTMLFormElement> = (e) => {
+    e.preventDefault();
+
     const fetchCreateWorkspace = async () => {
       try {
         setLoading(true);
+
+        const response = await fetch("/api/workspace/create-workspace", {
+          method: "POST",
+          body: JSON.stringify({
+            workspace_name: workspaceName,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error);
+        }
+
+        toast("Created Workspace");
+
+        setTimeout(() => window.location.reload(), 1500);
       } catch (error: unknown) {
+        if (error instanceof Error) {
+          toast(error.message);
+        }
       } finally {
         setLoading(false);
       }
@@ -33,16 +65,12 @@ export function CreateWorkspace() {
     fetchCreateWorkspace();
   };
 
-  const onSubmitForm: FormEventHandler<HTMLFormElement> = (e) => {
-    e.preventDefault();
-  };
-
   return (
     <>
       <Dialog>
         <DialogTrigger
           asChild
-          className="font-[family-name:var(--font-geist-sans)]"
+          className="font-[family-name:var(--font-geist-sans)] max-w-xs"
         >
           <Button variant="default" className="cursor-pointer">
             Create Workspace
@@ -52,9 +80,15 @@ export function CreateWorkspace() {
           <DialogHeader>
             <DialogTitle>Create New Workspace</DialogTitle>
           </DialogHeader>
-          <form onSubmit={} className="space-y-3">
+          <form ref={ref} onSubmit={onSubmitForm} className="space-y-3">
             <Label>Workspace Name</Label>
-            <Input type="text" placeholder="Your Workspace" />
+            <Input
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.currentTarget.value)}
+              type="text"
+              required
+              placeholder="Your Workspace"
+            />
           </form>
 
           <DialogFooter>
@@ -63,9 +97,10 @@ export function CreateWorkspace() {
               variant="default"
               onClick={onCreateWorkspaceHandler}
               disabled={loading}
+              className="cursor-pointer"
             >
               Create Workspace
-              {loading && <Loader2 />}
+              {loading && <Loader2 className="animate-spin" />}
             </Button>
           </DialogFooter>
         </DialogContent>
