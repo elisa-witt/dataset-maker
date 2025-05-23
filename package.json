@@ -6,6 +6,7 @@
     "dev": "next dev --turbopack",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
+    "prebuiild": "npm run db:generate",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
