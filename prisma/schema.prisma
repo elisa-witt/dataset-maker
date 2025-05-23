@@ -163,6 +163,12 @@ model Tool {
 
   toolName String
 
+  apiUrl        String? // New field, optional
+  // You might also consider:
+  httpMethod    String? @default("POST") // e.g., GET, POST
+  requestFormat String? // e.g., "json", "queryString"
+  headers       Json? // To store static headers if needed
+
   // NEW: Enhanced tool definition
   description String?
   parameters  String? // JSON schema as string

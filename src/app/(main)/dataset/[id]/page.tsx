@@ -19,5 +19,7 @@ export default async function DatasetPage({
     return notFound();
   }
 
-  return <ChatCard datasetId={dataset.datasetId} />;
+  return (
+    <ChatCard datasetId={dataset.datasetId} workspaceId={dataset.workspaceId} />
+  );
 }

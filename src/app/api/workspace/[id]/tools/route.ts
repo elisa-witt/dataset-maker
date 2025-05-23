@@ -29,7 +29,7 @@ export async function POST(
   const params = await routeParams;
 
   try {
-    const { toolName, description, parameters } = await request.json();
+    const { toolName, description, parameters, apiUrl } = await request.json();
 
     const workspace = await prismaClient.workspace.findFirst({
       where: {
@@ -50,6 +50,7 @@ export async function POST(
         toolName,
         description,
         parameters: JSON.stringify(parameters),
+        apiUrl,
       },
     });
 

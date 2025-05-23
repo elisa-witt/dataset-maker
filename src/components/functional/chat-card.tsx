@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import React, { useState, useEffect, FormEventHandler } from "react";
-import { Plus, MessageSquare, Send, Loader2 } from "lucide-react";
+import { Plus, MessageSquare, Send, Loader2, Play } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Label } from "../ui/label";
+import { Input } from "../ui/input";
+import { Checkbox } from "../ui/checkbox";
 
 // Interfaces matching your Prisma schema
 interface Conversation {
@@ -39,6 +43,17 @@ interface Message {
   toolCallId?: string;
 }
 
+interface Tool {
+  id: string;
+  toolName: string;
+  description?: string;
+  parameters?: string;
+  apiUrl?: string;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface ToolCall {
   id: string;
   toolCallId: string;
@@ -48,11 +63,21 @@ interface ToolCall {
   description?: string;
 }
 
-interface ChatCardProps {
-  datasetId: string;
+interface ToolCallInput {
+  id: string; // For OpenAI spec, this is the call_id
+  function: {
+    name: string;
+    arguments: string; // JSON string of arguments
+  };
+  type: "function";
 }
 
-export function ChatCard({ datasetId }: ChatCardProps) {
+interface ChatCardProps {
+  datasetId: string;
+  workspaceId: string;
+}
+
+export function ChatCard({ datasetId, workspaceId }: ChatCardProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] =
     useState<Conversation | null>(null);
@@ -62,11 +87,266 @@ export function ChatCard({ datasetId }: ChatCardProps) {
     "user" | "assistant" | "tool" | "system"
   >("user");
 
+  const [showToolCallOptions, setShowToolCallOptions] = useState(false);
+  const [availableTools, setAvailableTools] = useState<Tool[]>([]);
+  const [selectedToolToCall, setSelectedToolToCall] = useState<Tool | null>(
+    null
+  );
+  const [toolArguments, setToolArguments] = useState<Record<string, any>>({}); // To store argument inputs
+  const [isExecutingTool, setIsExecutingTool] = useState(false);
+
   useEffect(() => {
     if (datasetId) {
       fetchConversations();
     }
   }, [datasetId]);
+
+  const renderToolArgumentInputs = (tool: Tool) => {
+    if (!tool.parameters)
+      return (
+        <p className="text-xs text-muted-foreground">
+          No parameters defined for this tool.
+        </p>
+      );
+
+    try {
+      const schema = JSON.parse(tool.parameters);
+      if (schema.type !== "object" || !schema.properties) {
+        return (
+          <p className="text-xs text-destructive">
+            Invalid parameters schema (must be an object with properties).
+          </p>
+        );
+      }
+
+      return Object.entries(schema.properties).map(
+        ([key, propSchema]: [string, any]) => {
+          // Basic input rendering, extend for different types, enums, descriptions etc.
+          const paramDetails = propSchema as {
+            type: string;
+            description?: string;
+            enum?: string[];
+          };
+          return (
+            <div key={key} className="space-y-1">
+              <Label htmlFor={`tool-arg-${key}`} className="text-xs">
+                {key} ({paramDetails.type})
+                {schema.required?.includes(key) && (
+                  <span className="text-destructive"> *</span>
+                )}
+              </Label>
+              {paramDetails.description && (
+                <p className="text-xs text-muted-foreground">
+                  {paramDetails.description}
+                </p>
+              )}
+
+              {paramDetails.enum ? (
+                <Select
+                  value={toolArguments[key] || ""}
+                  onValueChange={(value) =>
+                    setToolArguments((prev) => ({ ...prev, [key]: value }))
+                  }
+                >
+                  <SelectTrigger id={`tool-arg-${key}`}>
+                    <SelectValue placeholder={`Select ${key}`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {paramDetails.enum.map((enumValue) => (
+                      <SelectItem key={enumValue} value={enumValue}>
+                        {enumValue}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : paramDetails.type === "boolean" ? (
+                <Checkbox
+                  id={`tool-arg-${key}`}
+                  checked={!!toolArguments[key]}
+                  onCheckedChange={(checked) =>
+                    setToolArguments((prev) => ({ ...prev, [key]: !!checked }))
+                  }
+                />
+              ) : (
+                // Default to text input for string, number etc.
+                <Input
+                  id={`tool-arg-${key}`}
+                  type={paramDetails.type === "number" ? "number" : "text"}
+                  value={toolArguments[key] || ""}
+                  onChange={(e) =>
+                    setToolArguments((prev) => ({
+                      ...prev,
+                      [key]: e.target.value,
+                    }))
+                  }
+                  placeholder={`Enter ${key}`}
+                />
+              )}
+            </div>
+          );
+        }
+      );
+    } catch (e) {
+      console.error("Error parsing tool parameters schema:", e);
+      return (
+        <p className="text-xs text-destructive">
+          Error parsing parameters schema.
+        </p>
+      );
+    }
+  };
+
+  const handleExecuteToolAndAddMessages = async () => {
+    if (
+      !selectedToolToCall ||
+      !selectedToolToCall.apiUrl ||
+      !selectedConversation
+    )
+      return;
+
+    setIsExecutingTool(true);
+    let toolExecutionResult: any;
+    const toolCallId = `call_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 10)}`; // Generate a unique call_id
+
+    try {
+      // 1. Call your backend to execute the tool
+      const executionResponse = await fetch("/api/tools/execute", {
+        // Use your actual endpoint
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toolId: selectedToolToCall.id,
+          args: toolArguments,
+        }),
+      });
+
+      if (!executionResponse.ok) {
+        const errorData = await executionResponse
+          .json()
+          .catch(() => ({ error: "Failed to execute tool via API" }));
+        throw new Error(
+          errorData.error ||
+            `Tool execution failed: ${executionResponse.statusText}`
+        );
+      }
+      toolExecutionResult = await executionResponse.json();
+
+      // 2. Create the assistant message with the tool_call
+      const assistantMessageData = {
+        role: "assistant" as const,
+        content: null, // Or some precursor text if desired
+        order: selectedConversation.messages?.length || 0,
+        toolCalls: [
+          {
+            id: toolCallId,
+            type: "function" as const,
+            function: {
+              name: selectedToolToCall.toolName,
+              arguments: JSON.stringify(toolArguments),
+            },
+          },
+        ],
+      };
+
+      const addAssistantMsgResponse = await fetch(
+        `/api/dataset/${datasetId}/conversations/${selectedConversation.id}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(assistantMessageData),
+        }
+      );
+      if (!addAssistantMsgResponse.ok)
+        throw new Error("Failed to add assistant message");
+      const addedAssistantMessage: Message =
+        await addAssistantMsgResponse.json();
+
+      // 3. Create the tool message with the execution result
+      const toolMessageData = {
+        role: "tool" as const,
+        content: JSON.stringify(toolExecutionResult), // OpenAI expects content for tool role to be the result
+        order: (selectedConversation.messages?.length || 0) + 1,
+        toolCallId: toolCallId, // Link to the assistant's tool call
+        name: selectedToolToCall.toolName, // Optional: name of the tool that was called
+      };
+
+      const addToolMsgResponse = await fetch(
+        `/api/dataset/${datasetId}/conversations/${selectedConversation.id}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(toolMessageData),
+        }
+      );
+      if (!addToolMsgResponse.ok) throw new Error("Failed to add tool message");
+      const addedToolMessage: Message = await addToolMsgResponse.json();
+
+      // 4. Update frontend state
+      setSelectedConversation((prevConv) => {
+        if (!prevConv) return null;
+        const existingMessages = prevConv.messages || [];
+        return {
+          ...prevConv,
+          messages: [
+            ...existingMessages,
+            addedAssistantMessage,
+            addedToolMessage,
+          ].sort((a, b) => a.order - b.order),
+        };
+      });
+      setConversations((prevConvs) =>
+        prevConvs.map((conv) =>
+          conv.id === selectedConversation.id
+            ? {
+                ...conv,
+                messages: [
+                  ...(conv.messages || []),
+                  addedAssistantMessage,
+                  addedToolMessage,
+                ].sort((a, b) => a.order - b.order),
+              }
+            : conv
+        )
+      );
+
+      toast.success("Tool executed and messages added successfully!");
+      setShowToolCallOptions(false);
+      setSelectedToolToCall(null);
+      setToolArguments({});
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "An unexpected error occurred.";
+      console.error("Error executing tool or adding messages:", error);
+      toast.error(errorMessage);
+    } finally {
+      setIsExecutingTool(false);
+    }
+  };
+
+  useEffect(() => {
+    const fetchWorkspaceDetailsAndTools = async () => {
+      if (datasetId) {
+        if (workspaceId) {
+          try {
+            const response = await fetch(`/api/workspace/${workspaceId}/tools`);
+            if (!response.ok) {
+              throw new Error("Failed to fetch tools");
+            }
+            const toolsData = await response.json();
+            setAvailableTools(toolsData || []);
+          } catch (error) {
+            console.error("Failed to fetch workspace tools:", error);
+            toast.error("Failed to load workspace tools.");
+          }
+        }
+      }
+    };
+    fetchWorkspaceDetailsAndTools();
+  }, [datasetId, workspaceId]); // Add dependencies as needed
 
   const fetchConversations = async () => {
     if (!datasetId) return;
@@ -431,7 +711,8 @@ export function ChatCard({ datasetId }: ChatCardProps) {
                 >
                   <div className="flex gap-6 items-end">
                     <div className="flex-1">
-                      <div className="mb-4">
+                      <div className="flex gap-2 mb-4">
+                        {/* User Role */}
                         <Select
                           onValueChange={(
                             value: "user" | "assistant" | "tool" | "system"
@@ -454,6 +735,112 @@ export function ChatCard({ datasetId }: ChatCardProps) {
                             </SelectGroup>
                           </SelectContent>
                         </Select>
+
+                        {/* Tool Pick */}
+                        {selectedRole === "assistant" &&
+                          !showToolCallOptions && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowToolCallOptions(true)}
+                              className="mb-2"
+                              disabled={
+                                messageLoading || availableTools.length === 0
+                              }
+                            >
+                              Add Tool Call
+                            </Button>
+                          )}
+                        {selectedRole === "assistant" &&
+                          showToolCallOptions && (
+                            <div className="p-4 border rounded-md mb-4 space-y-3 bg-muted/50">
+                              <h4 className="font-medium">
+                                Configure Tool Call
+                              </h4>
+                              <Select
+                                onValueChange={(toolId) => {
+                                  const tool = availableTools.find(
+                                    (t) => t.id === toolId
+                                  );
+                                  setSelectedToolToCall(tool || null);
+                                  setToolArguments({}); // Reset arguments when tool changes
+                                }}
+                                disabled={isExecutingTool}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Select a tool to call" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableTools.map((tool) => (
+                                    <SelectItem
+                                      key={tool.id}
+                                      value={tool.id}
+                                      disabled={!tool.apiUrl}
+                                    >
+                                      {tool.toolName}{" "}
+                                      {!tool.apiUrl &&
+                                        "(API URL not configured)"}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+
+                              {selectedToolToCall &&
+                                selectedToolToCall.parameters && (
+                                  <div className="space-y-2">
+                                    <Label className="text-sm font-medium">
+                                      Arguments:
+                                    </Label>
+                                    {/* Dynamically render input fields based on selectedToolToCall.parameters JSON schema */}
+                                    {renderToolArgumentInputs(
+                                      selectedToolToCall
+                                    )}
+                                  </div>
+                                )}
+
+                              {selectedToolToCall &&
+                                !selectedToolToCall.apiUrl && (
+                                  <p className="text-xs text-destructive">
+                                    This tool cannot be executed as its API URL
+                                    is not configured. You can still add it
+                                    manually to the dataset.
+                                  </p>
+                                )}
+
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  onClick={handleExecuteToolAndAddMessages}
+                                  disabled={
+                                    !selectedToolToCall ||
+                                    !selectedToolToCall.apiUrl ||
+                                    isExecutingTool
+                                  }
+                                  size="sm"
+                                >
+                                  {isExecutingTool ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Play className="mr-2 h-4 w-4" /> // Assuming you have Play icon from lucide-react
+                                  )}
+                                  Execute & Add to Dataset
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setShowToolCallOptions(false);
+                                    setSelectedToolToCall(null);
+                                    setToolArguments({});
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                       </div>
                       <Textarea
                         name="promptContent"

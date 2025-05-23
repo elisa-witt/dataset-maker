@@ -56,9 +56,19 @@ interface Tool {
   toolName: string;
   description?: string;
   parameters?: string;
+  apiUrl?: string;
   usageCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+interface ToolCallInput {
+  id: string; // For OpenAI spec, this is the call_id
+  function: {
+    name: string;
+    arguments: string; // JSON string of arguments
+  };
+  type: "function";
 }
 
 interface Workspace {
@@ -99,6 +109,8 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
     toolName: "",
     description: "",
     parameters: "",
+    apiUrl: "",
+    httpMethod: "",
   });
 
   useEffect(() => {
@@ -212,6 +224,7 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
           parameters: parsedParameters
             ? JSON.stringify(parsedParameters)
             : null,
+          apiUrl: toolForm.apiUrl,
         }),
       });
 
@@ -618,6 +631,18 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
                     }
                     placeholder='{"type": "object", "properties": {...}}'
                     className="font-mono text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="tool-api-url">API URL (Optional)</Label>
+                  <Input
+                    id="tool-api-url"
+                    value={toolForm.apiUrl}
+                    onChange={(e) =>
+                      setToolForm({ ...toolForm, apiUrl: e.target.value })
+                    }
+                    placeholder="https://api.example.com/mytool"
                   />
                 </div>
               </div>
