@@ -9,7 +9,16 @@ import {
   Plus,
   MessageSquare,
   Trash2,
+  Download,
+  MoreVertical,
 } from "lucide-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +102,13 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
   const [showToolModal, setShowToolModal] = useState(false);
   const [creatingDataset, setCreatingDataset] = useState(false);
   const [creatingTool, setCreatingTool] = useState(false);
+
+  // ... other state variables
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [selectedDatasetForExport, setSelectedDatasetForExport] =
+    useState<Dataset | null>(null);
+  const [exportFormat, setExportFormat] = useState<"json" | "jsonl">("json");
+  const [exportingDataset, setExportingDataset] = useState(false);
 
   const router = useRouter();
 
@@ -243,7 +259,13 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
       }
 
       setShowToolModal(false);
-      setToolForm({ toolName: "", description: "", parameters: "" });
+      setToolForm({
+        toolName: "",
+        description: "",
+        parameters: "",
+        apiUrl: "",
+        httpMethod: "",
+      });
       toast("Tool created successfully!");
     } catch (error: unknown) {
       const errorMessage =
@@ -344,6 +366,77 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
     });
   };
 
+  // Add this function inside WorkspacePage component
+  const handleExportDataset = async (
+    datasetIdToExport: string,
+    selectedFormat: "json" | "jsonl"
+  ) => {
+    if (!datasetIdToExport) return;
+
+    setExportingDataset(true);
+    toast.info(`Exporting dataset as ${selectedFormat.toUpperCase()}...`);
+
+    try {
+      const response = await fetch(
+        `/api/dataset/${datasetIdToExport}/export?format=${selectedFormat}`,
+        {
+          method: "GET",
+        }
+      );
+
+      if (!response.ok) {
+        let errorData = {
+          error: `Failed to export dataset. Status: ${response.status}`,
+        };
+        try {
+          // Try to parse as JSON, but don't fail if it's not
+          errorData = await response.json();
+        } catch (jsonError) {
+          console.warn("Response was not JSON:", await response.text());
+        }
+        throw new Error(
+          errorData.error ||
+            `Failed to export dataset. Status: ${response.status}`
+        );
+      }
+
+      const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+      const contentDisposition = response.headers.get("Content-Disposition");
+      let filename = `dataset_${datasetIdToExport}.${selectedFormat}`; // Default filename
+      if (contentDisposition) {
+        const matches = filenameRegex.exec(contentDisposition);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, "");
+        }
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Dataset exported successfully!");
+
+      // Optionally, refetch workspace data to update exportCount and lastExportAt display
+      // This depends on how you manage state updates (e.g., fetchWorkspace())
+      // For simplicity, we'll assume a manual refresh or a more sophisticated state management might be in place.
+      // You could also update the specific dataset in the local 'workspace' state if the API returned the updated dataset info.
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to export dataset";
+      toast.error(errorMessage);
+    } finally {
+      setExportingDataset(false);
+      setShowExportModal(false); // Close modal if using one
+      setSelectedDatasetForExport(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-96">
@@ -391,6 +484,79 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
                 <span>{workspace.tools.length} tools</span>
               </div>
             </div>
+
+            <Dialog
+              open={showExportModal}
+              onOpenChange={(isOpen) => {
+                if (!isOpen) {
+                  setSelectedDatasetForExport(null);
+                }
+                setShowExportModal(isOpen);
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    Export Dataset:{" "}
+                    {selectedDatasetForExport && selectedDatasetForExport.name}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Select the format for your dataset export.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <Label htmlFor="export-format">Export Format</Label>
+                  <Select
+                    value={exportFormat}
+                    onValueChange={(value: "json" | "jsonl") =>
+                      setExportFormat(value)
+                    }
+                  >
+                    <SelectTrigger id="export-format">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="json">JSON</SelectItem>
+                      <SelectItem value="jsonl">JSONL</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowExportModal(false);
+                      setSelectedDatasetForExport(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (selectedDatasetForExport) {
+                        handleExportDataset(
+                          selectedDatasetForExport.datasetId,
+                          exportFormat
+                        );
+                      }
+                    }}
+                    disabled={exportingDataset}
+                  >
+                    {exportingDataset ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="mr-2 h-4 w-4" />
+                        Export as {exportFormat.toUpperCase()}
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </div>
@@ -521,21 +687,43 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
                       )}
                     </div>
                     <div className="flex items-center space-x-1">
-                      <Badge className={getStatusColor(dataset.status)}>
-                        {dataset.status}
-                      </Badge>
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteDataset(dataset.id);
-                          }}
-                          className="h-8 w-8 p-0"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <DropdownMenu modal={false}>
+                          {" "}
+                          {/* Add modal={false} here */}
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                // It's good practice to use onSelect for DropdownMenuItems if they perform an action
+                                // and you want the menu to close, which is default.
+                                // onClick is fine here too but onSelect is more semantically aligned with Radix.
+                                e.stopPropagation(); // Keep if needed for other card interactions, though usually not necessary for menu items.
+                                setSelectedDatasetForExport(dataset);
+                                setShowExportModal(true);
+                              }}
+                            >
+                              <Download className="mr-2 h-4 w-4" /> Export
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-700/20 dark:focus:text-red-500"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteDataset(dataset.id);
+                              }}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
                   </div>
