@@ -9,7 +9,7 @@ export default async function Page({
   const { id } = await params;
 
   return (
-    <div className="w-full max-w-2xl h-screen flex p-4">
+    <div className="w-full h-screen flex p-4">
       <WorkspacePage workspaceId={id} />
     </div>
   );

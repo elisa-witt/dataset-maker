@@ -24,41 +24,56 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params: routeParams }: { params: Promise<{ id: string }> }
+  { params: routeParams }: { params: Promise<{ id: string }> } // workspaceId from path
 ) {
-  const params = await routeParams;
+  const params = await routeParams; // Contains { id: workspaceIdFromPath }
+  const workspaceIdFromPath = params.id;
 
   try {
     const { toolName, description, parameters, apiUrl } = await request.json();
+    // 'parameters' received here is already the JSON string of the schema
 
-    const workspace = await prismaClient.workspace.findFirst({
+    if (!toolName || typeof toolName !== "string" || toolName.trim() === "") {
+      return NextResponse.json(
+        { error: "Tool name is required." },
+        { status: 400 }
+      );
+    }
+
+    const workspace = await prismaClient.workspace.findUnique({
+      // Use findUnique if workspaceId is unique ID
       where: {
-        workspaceId: params.id,
+        // id: workspaceIdFromPath, // If path 'id' is the internal Prisma ID
+        workspaceId: workspaceIdFromPath, // If path 'id' is the string workspaceId field
       },
     });
 
     if (!workspace) {
       return NextResponse.json(
-        { error: "Failed to find workspace" },
-        { status: 500 }
+        { error: `Workspace with ID ${workspaceIdFromPath} not found.` },
+        { status: 404 }
       );
     }
 
     const tool = await prismaClient.tool.create({
       data: {
-        workspaceId: workspace.id,
+        workspaceId: workspace.id, // Use the internal Prisma workspace.id
         toolName,
-        description,
-        parameters: JSON.stringify(parameters),
-        apiUrl,
+        description: description || null,
+        parameters: parameters, // Store the JSON string directly
+        apiUrl: apiUrl || null,
       },
     });
 
-    return NextResponse.json(tool);
+    return NextResponse.json(tool); // Or { tool: tool } to match frontend expectation
   } catch (error) {
-    console.log(error);
+    console.error("Error creating tool:", error);
     return NextResponse.json(
-      { error: "Failed to create tool" },
+      {
+        error:
+          "Failed to create tool. " +
+          (error instanceof Error ? error.message : ""),
+      },
       { status: 500 }
     );
   }

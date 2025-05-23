@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
+import { Checkbox } from "../ui/checkbox";
 
 interface Dataset {
   id: string;
@@ -78,6 +79,15 @@ interface ToolCallInput {
     arguments: string; // JSON string of arguments
   };
   type: "function";
+}
+
+interface ParameterDefinition {
+  id: string; // For unique key in React lists
+  name: string;
+  type: "string" | "number" | "boolean"; // Extend with 'integer', 'array' as needed
+  description: string;
+  isRequired: boolean;
+  enumValuesStr: string; // Comma-separated string for enums (if type is 'string')
 }
 
 interface Workspace {
@@ -124,9 +134,10 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
   const [toolForm, setToolForm] = useState({
     toolName: "",
     description: "",
-    parameters: "",
+    // parameters: "", // Keep this if you want to show the generated JSON, or remove
+    structuredParameters: [] as ParameterDefinition[], // New field for UI-driven params
     apiUrl: "",
-    httpMethod: "",
+    httpMethod: "", // Make sure this is handled in your createTool logic if needed
   });
 
   useEffect(() => {
@@ -219,28 +230,29 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
 
     setCreatingTool(true);
     try {
-      let parsedParameters = null;
-      if (toolForm.parameters.trim()) {
-        try {
-          parsedParameters = JSON.parse(toolForm.parameters);
-        } catch {
-          throw new Error("Invalid JSON in parameters field");
-        }
+      // Transform structured parameters to JSON string schema
+      const parametersJsonString = transformStructuredParametersToSchema(
+        toolForm.structuredParameters
+      );
+
+      // Validate if toolName is present
+      if (!toolForm.toolName.trim()) {
+        throw new Error("Tool Name is required.");
       }
 
       const response = await fetch(`/api/workspace/${workspaceId}/tools`, {
+        // Ensure this API endpoint is correct
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          workspace_id: workspaceId,
+          // workspace_id: workspaceId, // The API route already gets workspaceId from path params
           toolName: toolForm.toolName,
           description: toolForm.description,
-          parameters: parsedParameters
-            ? JSON.stringify(parsedParameters)
-            : null,
+          parameters: parametersJsonString || null, // Send null or empty object if no params
           apiUrl: toolForm.apiUrl,
+          // httpMethod: toolForm.httpMethod, // Add if your backend uses this
         }),
       });
 
@@ -250,7 +262,6 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
         throw new Error(data.error || "Failed to create tool");
       }
 
-      // Add new tool to workspace
       if (workspace) {
         setWorkspace({
           ...workspace,
@@ -259,18 +270,19 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
       }
 
       setShowToolModal(false);
+      // Reset tool form, including structuredParameters
       setToolForm({
         toolName: "",
         description: "",
-        parameters: "",
+        structuredParameters: [],
         apiUrl: "",
         httpMethod: "",
       });
-      toast("Tool created successfully!");
+      toast.success("Tool created successfully!");
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to create tool";
-      toast(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setCreatingTool(false);
     }
@@ -435,6 +447,94 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
       setShowExportModal(false); // Close modal if using one
       setSelectedDatasetForExport(null);
     }
+  };
+
+  function transformStructuredParametersToSchema(
+    params: ParameterDefinition[]
+  ): string {
+    if (params.length === 0) {
+      return ""; // Or return JSON.stringify({}) if an empty object is preferred
+    }
+
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+
+    params.forEach((param) => {
+      if (!param.name.trim()) return; // Skip if name is empty
+
+      const propertyDefinition: any = {
+        type: param.type,
+        description: param.description.trim() || undefined, // Omit if empty
+      };
+
+      if (param.type === "string" && param.enumValuesStr.trim()) {
+        propertyDefinition.enum = param.enumValuesStr
+          .split(",")
+          .map((e) => e.trim())
+          .filter((e) => e);
+        if (propertyDefinition.enum.length === 0) {
+          delete propertyDefinition.enum;
+        }
+      }
+
+      properties[param.name.trim()] = propertyDefinition;
+
+      if (param.isRequired) {
+        required.push(param.name.trim());
+      }
+    });
+
+    if (Object.keys(properties).length === 0) {
+      return ""; // Or JSON.stringify({})
+    }
+
+    const schema = {
+      type: "object",
+      properties,
+      ...(required.length > 0 && { required }),
+    };
+
+    return JSON.stringify(schema, null, 2);
+  }
+
+  // Add these handlers inside WorkspacePage component
+  const handleAddParameter = () => {
+    setToolForm((prev) => ({
+      ...prev,
+      structuredParameters: [
+        ...prev.structuredParameters,
+        {
+          id: Date.now().toString(),
+          name: "",
+          type: "string",
+          description: "",
+          isRequired: false,
+          enumValuesStr: "",
+        },
+      ],
+    }));
+  };
+
+  const handleRemoveParameter = (id: string) => {
+    setToolForm((prev) => ({
+      ...prev,
+      structuredParameters: prev.structuredParameters.filter(
+        (p) => p.id !== id
+      ),
+    }));
+  };
+
+  const handleParameterChange = (
+    id: string,
+    field: keyof ParameterDefinition,
+    value: string | boolean
+  ) => {
+    setToolForm((prev) => ({
+      ...prev,
+      structuredParameters: prev.structuredParameters.map((p) =>
+        p.id === id ? { ...p, [field]: value } : p
+      ),
+    }));
   };
 
   if (loading) {
@@ -741,7 +841,9 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
                     )}
                     <div className="flex justify-between">
                       <span>Exports:</span>
-                      <span className="font-medium">{dataset.exportCount}</span>
+                      <span className="font-medium">
+                        {dataset.exportCount ?? 0}
+                      </span>
                     </div>
                   </div>
 
@@ -807,20 +909,6 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
                     placeholder="Tool description"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="tool-parameters">
-                    Parameters (JSON Schema)
-                  </Label>
-                  <Textarea
-                    id="tool-parameters"
-                    value={toolForm.parameters}
-                    onChange={(e) =>
-                      setToolForm({ ...toolForm, parameters: e.target.value })
-                    }
-                    placeholder='{"type": "object", "properties": {...}}'
-                    className="font-mono text-sm"
-                  />
-                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="tool-api-url">API URL (Optional)</Label>
@@ -862,7 +950,7 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 w-full gap-4">
             {workspace.tools.map((tool) => (
               <div
                 key={tool.id}
@@ -895,17 +983,154 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
                     </div>
                   </div>
 
-                  <div className="space-y-2 text-sm text-muted-foreground">
-                    <div className="flex justify-between">
-                      <span>Usage count:</span>
-                      <span className="font-medium">{tool.usageCount}</span>
+                  {/* Replace the existing Parameters Textarea with this section */}
+                  <div className="space-y-2">
+                    <div className="flex flex-col gap-3 justify-start items-start">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleAddParameter}
+                      >
+                        <Plus className="h-4 w-4 mr-2" /> Add Parameter
+                      </Button>
+                      <Label>Parameters</Label>
                     </div>
-                    {tool.parameters && (
-                      <div className="space-y-1">
-                        <span>Parameters:</span>
-                        <div className="bg-muted p-2 rounded text-xs font-mono max-h-20 overflow-y-auto">
-                          {JSON.stringify(JSON.parse(tool.parameters), null, 2)}
+                    {toolForm.structuredParameters.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-2">
+                        No parameters defined. Click &quot;Add Parameter&quot;
+                        to add one.
+                      </p>
+                    )}
+                    <div className="space-y-4 max-h-60 overflow-y-auto pr-2">
+                      {toolForm.structuredParameters.map((param, index) => (
+                        <div
+                          key={param.id}
+                          className="p-3 border rounded-md space-y-3 bg-muted/30 relative"
+                        >
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-1 right-1 h-6 w-6"
+                            onClick={() => handleRemoveParameter(param.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label htmlFor={`param-name-${index}`}>
+                                Name
+                              </Label>
+                              <Input
+                                id={`param-name-${index}`}
+                                value={param.name}
+                                onChange={(e) =>
+                                  handleParameterChange(
+                                    param.id,
+                                    "name",
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="Parameter name"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`param-type-${index}`}>
+                                Type
+                              </Label>
+                              <Select
+                                value={param.type}
+                                onValueChange={(
+                                  value: "string" | "number" | "boolean"
+                                ) =>
+                                  handleParameterChange(param.id, "type", value)
+                                }
+                              >
+                                <SelectTrigger id={`param-type-${index}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="string">String</SelectItem>
+                                  <SelectItem value="number">Number</SelectItem>
+                                  <SelectItem value="boolean">
+                                    Boolean
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`param-desc-${index}`}>
+                              Description
+                            </Label>
+                            <Input
+                              id={`param-desc-${index}`}
+                              value={param.description}
+                              onChange={(e) =>
+                                handleParameterChange(
+                                  param.id,
+                                  "description",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Parameter description"
+                            />
+                          </div>
+                          {param.type === "string" && (
+                            <div className="space-y-1">
+                              <Label htmlFor={`param-enum-${index}`}>
+                                Enum Values (comma-separated)
+                              </Label>
+                              <Input
+                                id={`param-enum-${index}`}
+                                value={param.enumValuesStr}
+                                onChange={(e) =>
+                                  handleParameterChange(
+                                    param.id,
+                                    "enumValuesStr",
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="e.g., value1,value2,value3"
+                              />
+                            </div>
+                          )}
+                          <div className="flex items-center space-x-2 pt-1">
+                            <Checkbox
+                              id={`param-required-${index}`}
+                              checked={param.isRequired}
+                              onCheckedChange={(checked) =>
+                                handleParameterChange(
+                                  param.id,
+                                  "isRequired",
+                                  !!checked
+                                )
+                              }
+                            />
+                            <Label
+                              htmlFor={`param-required-${index}`}
+                              className="font-normal"
+                            >
+                              Required
+                            </Label>
+                          </div>
                         </div>
+                      ))}
+                    </div>
+                    {/* Optional: Display the generated JSON for review */}
+                    {toolForm.structuredParameters.length > 0 && (
+                      <div className="space-y-1 mt-4">
+                        <Label>Generated JSON Schema (for review)</Label>
+                        <Textarea
+                          readOnly
+                          value={
+                            transformStructuredParametersToSchema(
+                              toolForm.structuredParameters
+                            ) || "Define parameters to see schema..."
+                          }
+                          className="font-mono text-xs h-24 bg-muted/50"
+                        />
                       </div>
                     )}
                   </div>

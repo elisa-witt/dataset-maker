@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { MessageRole } from "@/generated/prisma";
 import { prismaClient } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
@@ -75,7 +76,9 @@ export async function POST(
             toolCallId: tc.id || `call_${Date.now()}`,
             type: tc.type || "function",
             functionName: tc.function.name,
-            functionArguments: JSON.stringify(tc.function.arguments),
+            // Ensure tc.function.arguments is already a string from the frontend
+            // and doesn't need JSON.stringify() again here.
+            functionArguments: tc.function.arguments, // If tc.function.arguments is already a string
           })),
         },
       },

@@ -36,17 +36,14 @@ interface ExportedTool {
 interface ExportedConversationItem {
   messages: ExportedMessage[];
   tools: ExportedTool[];
-  // Optional: include conversation metadata if needed
-  // conversationId?: string;
-  // title?: string;
-  // description?: string;
+  parallel_tool_calls: boolean; // Add this
 }
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } } // datasetId is 'id' here
+  { params: routeParams }: { params: Promise<{ id: string }> }
 ) {
-  const datasetId = params.id;
+  const datasetId = (await routeParams).id;
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") || "json"; // Default to json
 
@@ -159,6 +156,8 @@ export async function GET(
         return {
           messages: exportedMessages,
           tools: exportedTools, // Include all workspace tools with each conversation item as per user's initial JSON
+          parallel_tool_calls: false,
+
           // conversationId: convo.conversationId, // Optional
           // title: convo.title,                 // Optional
         };

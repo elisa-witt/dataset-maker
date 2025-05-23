@@ -212,7 +212,7 @@ export function ChatCard({ datasetId, workspaceId }: ChatCardProps) {
 
     try {
       // 1. Call your backend to execute the tool
-      const executionResponse = await fetch("/api/tools/execute", {
+      const executionResponse = await fetch("/api/tool/execute", {
         // Use your actual endpoint
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -382,7 +382,7 @@ export function ChatCard({ datasetId, workspaceId }: ChatCardProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: `Conversation ${conversations.length + 1}`,
-          description: "Training conversation",
+          description: "Makesure",
         }),
       });
 
@@ -620,11 +620,6 @@ export function ChatCard({ datasetId, workspaceId }: ChatCardProps) {
                   <div className="text-sm flex justify-between items-center mb-2">
                     <span>{conversation.messages?.length || 0} messages</span>
                   </div>
-                  {conversation.description && (
-                    <div className="text-xs truncate">
-                      {conversation.description}
-                    </div>
-                  )}
                 </div>
                 <Button
                   size="sm"
@@ -651,9 +646,7 @@ export function ChatCard({ datasetId, workspaceId }: ChatCardProps) {
                 <h1 className="text-3xl font-bold mb-2">
                   {selectedConversation.title || "Training Conversation"}
                 </h1>
-                {selectedConversation.description && (
-                  <p className="mb-3">{selectedConversation.description}</p>
-                )}
+
                 <div className="flex items-center space-x-6 text-sm">
                   {selectedConversation.quality && (
                     <span className="px-3 py-1 rounded-full">
@@ -688,7 +681,7 @@ export function ChatCard({ datasetId, workspaceId }: ChatCardProps) {
                         />
                       ))
                   ) : (
-                    <div className="flex items-center justify-center h-96">
+                    <div className="flex items-center justify-center h-128">
                       <div className="text-center text-muted-foreground">
                         <MessageSquare className="w-16 h-16 mx-auto mb-6" />
                         <p className="text-xl font-medium mb-2">
