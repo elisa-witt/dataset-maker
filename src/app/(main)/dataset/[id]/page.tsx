@@ -15,7 +15,7 @@ export default async function DatasetPage({
     },
   });
 
-  if (!dataset) {
+  if (!dataset || !dataset.workspaceId) {
     return notFound();
   }
 

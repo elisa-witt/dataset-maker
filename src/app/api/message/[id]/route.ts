@@ -4,9 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 // PUT - Update message
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params: routeParams }: { params: Promise<{ id: string }> } // Renamed for clarity
 ) {
   try {
+    const params = await routeParams;
+
     const { content, toolCalls = [] } = await request.json();
 
     // Delete existing tool calls
@@ -43,8 +45,10 @@ export async function PUT(
 // DELETE - Delete message
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params: routeParams }: { params: Promise<{ id: string }> } // Renamed for clarity
 ) {
+  const params = await routeParams;
+
   try {
     await prismaClient.message.delete({
       where: { id: params.id },

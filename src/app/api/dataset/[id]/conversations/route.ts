@@ -5,9 +5,9 @@ import { PrismaClientKnownRequestError } from "@/generated/prisma/runtime/librar
 // GET - List all training conversations in a dataset
 export async function GET(
   request: NextRequest,
-  { params: waitParams }: { params: { id: string } }
+  { params: routeParams }: { params: Promise<{ id: string }> } // Renamed for clarity
 ) {
-  const params = await waitParams;
+  const params = await routeParams;
 
   try {
     // 1. Check if the Dataset exists
