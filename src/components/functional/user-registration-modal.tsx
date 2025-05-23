@@ -86,6 +86,9 @@ export function UserRegistrationModal() {
         }
       } finally {
         setLoading(false);
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
       }
     };
 
