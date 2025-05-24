@@ -849,7 +849,10 @@ export function ChatCard({ datasetId, workspaceId }: ChatCardProps) {
                       disabled={messageLoading}
                     >
                       {messageLoading ? (
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <>
+                          <Loader2 className="animate-spin h-5 w-5 mr-2" />
+                          Sending
+                        </>
                       ) : (
                         <>
                           <Send className="w-5 h-5 mr-2" />
